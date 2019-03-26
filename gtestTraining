@@ -1,0 +1,192 @@
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include <string>
+#include <vector>
+
+namespace {
+    std::string const ProjectName ("ProjectName");
+    using testing::Contains;
+    using ::testing::Return;
+}
+
+class UserInterface
+{
+    public:
+        virtual void MarkInUse() = 0;
+        virtual bool IsDeleted() const = 0;
+
+        virtual ~UserInterface(){};
+};
+
+class User : public UserInterface
+{
+    public:
+        void MarkInUse() override {}
+        bool IsDeleted() const override {return false;}
+
+        explicit User(size_t ID):m_ID(ID){}
+        //User():m_ID(0){}
+        //std::string getName(){return m_name;}
+        bool operator==(User const&other) const 
+        {
+            return m_ID == other.m_ID;
+        };
+
+    private:
+        size_t m_ID;       
+};
+
+class MockerUser: public User
+{
+    public:
+        MockerUser():User(32){}
+        MOCK_METHOD0(MarkInUse,void());
+        MOCK_CONST_METHOD0(IsDeleted,bool());
+
+};
+
+
+class Project{
+  private:
+    std::string m_name;
+    std::vector<User *> mList_User;
+    std::vector<User *> mList_UserWithPermission;
+
+  public:
+    explicit Project(std::string inputName) : m_name(std::move(inputName)) {}
+
+    std::string GetName() const { return m_name; }
+    std::vector<User *> ListMembers() const { return mList_User; };
+    std::vector<User *> ListMembersWithWritePermissions() const { return mList_UserWithPermission; };
+    void AddMember(User *user) 
+        { 
+            if (user->IsDeleted())
+            {
+                return;
+            }
+            mList_User.push_back(user); 
+            user->MarkInUse();
+        };
+    void AddMemberWithWritePermission(User *user)
+    {
+        mList_User.push_back(user);
+        user->MarkInUse();
+        mList_UserWithPermission.push_back(user);
+    };
+};
+
+
+class AProject : public ::testing::Test
+{
+
+    protected:
+        //std::string const ProjectName {"ProjectName"}; 
+        Project proj {ProjectName};
+        //Project const proj2 = Project(ProjectName);
+};
+
+TEST_F(AProject, HASANAME)
+{
+
+    
+    //std::string const expected = "projectName";
+    std::string const actual = proj.GetName();
+    EXPECT_EQ(ProjectName,actual);
+}
+
+TEST_F(AProject,HASNOMEMBER)
+{
+    //Project const proj("ProjectName");
+    //std::size_t const expected = 0;
+    EXPECT_TRUE (proj.ListMembers().empty());
+}
+
+TEST_F (AProject,USERADDED)
+{
+    User QC(1);
+    User KIM (2);
+    proj.AddMember(&QC);
+    auto members = proj.ListMembers();
+    ASSERT_TRUE(std::find(members.begin(),members.end(),&QC)!=members.end());
+  //EXPECT_THAT(members,::testing::Contains(&QC));
+  //ASSERT_TRUE(std::find(members.begin(),members.end(),&KIM)==members.end());
+}
+
+TEST_F (AProject,WritePermissionUSERADDED)
+{
+    User QC(1);
+    User KIM (2);
+    proj.AddMemberWithWritePermission(&QC);
+    auto members = proj.ListMembersWithWritePermissions();
+    ASSERT_TRUE(std::find(members.begin(),members.end(),&QC)!=members.end());
+  //EXPECT_THAT(members,::testing::Contains(&QC));
+  //ASSERT_TRUE(std::find(members.begin(),members.end(),&KIM)==members.end());
+}
+
+
+TEST_F(AProject,WritePermission)
+{
+    User Kim(2);
+    User Karl(3);
+    proj.AddMember(&Kim);
+    proj.AddMember(&Karl);
+    proj.AddMemberWithWritePermission(&Karl);
+
+    auto members = proj.ListMembers();
+    auto membersWithPermissions = proj.ListMembersWithWritePermissions();
+    ASSERT_FALSE(std::find(membersWithPermissions.begin(),membersWithPermissions.end(),&Kim)!=membersWithPermissions.end());
+    
+}
+
+TEST_F(AProject,AddWritePermission)
+{
+    User Karl(3);
+    proj.AddMemberWithWritePermission(&Karl);
+
+    auto members = proj.ListMembers();
+    //auto membersWithPermissions = proj.ListMembersWithWritePermissions();
+    EXPECT_THAT(members,::testing::Contains(&Karl));
+    
+}
+
+TEST_F(AProject,AddAllPermission)
+{
+    User Karl(3);
+    User Kim(4);
+    proj.AddMember(&Kim);
+    proj.AddMemberWithWritePermission(&Karl);
+
+    auto members = proj.ListMembers();
+    //auto membersWithPermissions = proj.ListMembersWithWritePermissions();
+    EXPECT_THAT(members,::testing::Contains(&Karl));
+    EXPECT_THAT(members,::testing::Contains(&Kim));
+    // no repetated ID
+}
+
+TEST_F(AProject,callFunction)
+{
+    MockerUser mock_user;
+    
+    
+    EXPECT_CALL(mock_user,MarkInUse());
+    proj.AddMember(&mock_user);
+}
+
+TEST_F(AProject,callFunction2)
+{
+    MockerUser mock_user;
+    
+    EXPECT_CALL(mock_user,MarkInUse());
+    proj.AddMemberWithWritePermission(&mock_user);
+}
+
+TEST_F(AProject,MockDeleted)
+{
+    MockerUser mock_user;
+    
+    EXPECT_CALL(mock_user,IsDeleted()).WillOnce(Return(true));
+    proj.AddMember(&mock_user);
+    auto members = proj.ListMembers();
+    EXPECT_TRUE(members.empty());
+
+}
